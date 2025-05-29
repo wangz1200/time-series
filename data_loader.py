@@ -323,7 +323,10 @@ class FutureDataloader(DataLoader):
 
 
 if __name__ == "__main__":
-    with open("./config/config.yaml", "r", encoding="utf-8") as f:
+    with Path("./config/config.yaml").open(
+            mode="r",
+            encoding="uf8",
+    ) as f:
         config = yaml.safe_load(f)
     token = config["tushare"]['token']
     dataset = TuShare(
