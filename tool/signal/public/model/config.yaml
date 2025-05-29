@@ -1,0 +1,22 @@
+model:
+  d_ff: 32
+  d_model: 32
+  dropout: 0.1
+  e_layers: 12
+  embed: timeF
+  enc_in: 3
+  freq: t
+  gpus: '0'
+  mean:
+  - 6109.145373356488
+  - 5057.691557099149
+  - 276236.4676258993
+  num_class: 2
+  num_kernels: 6
+  seq_len: 64
+  std:
+  - 161.71060383959104
+  - 12009.532908266243
+  - 359799.5170079496
+  top_k: 2
+  use_gpu: false

@@ -1,0 +1,21 @@
+root:
+  path:
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  secret_key: secret_key
+
+signal:
+  host: 47.93.28.239
+  port: 9000
+
+database:
+  type: mysql
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: zhEn@1205
+  name: future_trading
+
+
