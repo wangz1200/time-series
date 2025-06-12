@@ -288,6 +288,61 @@ class TimeMixerPP(nn.Module):
         dec_out = dec_out.reshape(B, self.n_pred_features, -1).permute(0, 2, 1).contiguous()
         return dec_out
 
+    def predict_high_low(self, x_enc, x_mark_enc=None):
+        """Predict high and low points (2 values) from input sequence"""
+        B, T, N = x_enc.size()
+        x_enc, x_mark_enc = self.__multi_scale_process_inputs(x_enc, x_mark_enc)
+        x_list = []
+        x_mark_list = []
+        if x_mark_enc is not None:
+            for i, x, x_mark in zip(range(len(x_enc)), x_enc, x_mark_enc):
+                B, T, N = x.size()
+                x = self.revin_layers[i](x, x_mark, mode="norm") if self.use_norm else x
+                if self.channel_independence:
+                    x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
+                    x_mark = x_mark.repeat(N, 1, 1)
+                x_list.append(x)
+                x_mark_list.append(x_mark)
+        else:
+            for i, x in zip(range(len(x_enc)), x_enc):
+                B, T, N = x.size()
+                x = self.revin_layers[i](x, mode="norm") if self.use_norm else x
+                if self.channel_independence:
+                    x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
+                x_list.append(x)
+        if self.channel_mixing and self.channel_independence:
+            _, T, D = x_list[-1].size()
+            coarse_scale_enc_out = x_list[-1].reshape(B, N, T * D)
+            coarse_scale_enc_out, _ = self.channel_mixing_attention(
+                coarse_scale_enc_out, coarse_scale_enc_out, coarse_scale_enc_out, None
+            )
+            x_list[-1] = coarse_scale_enc_out.reshape(B * N, T, D) + x_list[-1]
+        enc_out_list = []
+        if x_mark_enc is not None:
+            for x, x_mark in zip(x_list, x_mark_list):
+                enc_out = self.enc_embedding(x, x_mark)  # [B,T,C]
+                enc_out_list.append(enc_out)
+        else:
+            for x in x_list:
+                enc_out = self.enc_embedding(x, None)  # [B,T,C]
+                enc_out_list.append(enc_out)
+        for i in range(self.n_layers):
+            enc_out_list = self.encoder_model[i](enc_out_list)
+        # Get predictions from the finest scale (original resolution)
+        pred = self.projection_layer(enc_out_list[0])
+        if self.channel_independence:
+            pred = pred.reshape(B, N, -1).permute(0, 2, 1)  # [B, 2, N]
+        else:
+            pred = pred.reshape(B, -1, 2).permute(0, 2, 1)  # [B, 2, N]
+        # Apply denormalization if using RevIN
+        if self.use_norm:
+            pred = self.revin_layers[0](pred, mode="denorm")
+        # Return high and low predictions
+        # Assuming first output is high, second is low
+        high_pred = pred[:, 0, :]  # [B, N]
+        low_pred = pred[:, 1, :]  # [B, N]
+        return torch.stack([high_pred, low_pred], dim=-1)  # [B, N, 2]
+
 
 if __name__ == "__main__":
     from util import args
