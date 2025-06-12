@@ -48,17 +48,13 @@ class TimeMixerPP(nn.Module):
         self.downsampling_method = downsampling_method
         self.use_norm = use_norm
         self.use_future_temporal_feature = use_future_temporal_feature
-
         assert downsampling_method in ["max", "avg", "conv"], "downsampling_method must be in ['max', 'avg', 'conv']"
-
         if self.channel_independence:
             self.enc_embedding = DataEmbedding(1, d_model, embed, freq, dropout, with_pos=False)
         else:
             self.enc_embedding = DataEmbedding(n_features, d_model, embed, freq, dropout, with_pos=False)
-
         if self.use_norm:
             self.revin_layers = torch.nn.ModuleList([RevIN(n_features) for _ in range(downsampling_layers + 1)])
-
         self.encoder_model = nn.ModuleList(
             [
                 MixerBlock(
@@ -73,7 +69,6 @@ class TimeMixerPP(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-
         if self.channel_mixing:
             assert n_steps >= downsampling_window**downsampling_layers
             d_time_model = n_steps // (downsampling_window**downsampling_layers)
@@ -86,19 +81,16 @@ class TimeMixerPP(nn.Module):
                 d_kv,
                 d_kv,
             )
-
         if self.downsampling_method == "max":
             self.down_pool = torch.nn.MaxPool1d(self.downsampling_window, return_indices=False)
         elif self.downsampling_method == "avg":
             self.down_pool = torch.nn.AvgPool1d(self.downsampling_window)
         elif self.downsampling_method == "conv":
             padding = 1 if torch.__version__ >= "1.5.0" else 2
-
             if self.channel_independence:
                 in_channels = 1
             else:
                 in_channels = n_features
-
             self.down_pool = nn.Conv1d(
                 in_channels=in_channels,
                 out_channels=in_channels,
@@ -110,7 +102,6 @@ class TimeMixerPP(nn.Module):
             )
         else:
             raise ValueError("Downsampling method is error,only supporting the max, avg, conv1D")
-
         if task_name == "long_term_forecast" or task_name == "short_term_forecast":
             self.predict_layers = torch.nn.ModuleList(
                 [
@@ -121,7 +112,6 @@ class TimeMixerPP(nn.Module):
                     for i in range(downsampling_layers + 1)
                 ]
             )
-
             if self.channel_independence:
                 self.projection_layer = nn.Linear(d_model, 1, bias=True)
             else:
@@ -148,44 +138,35 @@ class TimeMixerPP(nn.Module):
         x_mark_sampling_list = []
         x_enc_sampling_list.append(x_enc.permute(0, 2, 1))
         x_mark_sampling_list.append(x_mark_enc)
-
         for i in range(self.downsampling_layers):
             if self.downsampling_method == "conv" and i == 0 and self.channel_independence:
                 x_enc_ori = x_enc_ori.contiguous().reshape(B * N, T, 1).permute(0, 2, 1).contiguous()
-
             x_enc_sampling = self.down_pool(x_enc_ori)
-
             if self.downsampling_method == "conv":
                 x_enc_sampling_list.append(
                     x_enc_sampling.reshape(B, N, T // (self.downsampling_window ** (i + 1))).permute(0, 2, 1)
                 )
             else:
                 x_enc_sampling_list.append(x_enc_sampling.permute(0, 2, 1))
-
             x_enc_ori = x_enc_sampling
-
             if x_mark_enc_mark_ori is not None:
                 x_mark_sampling_list.append(x_mark_enc_mark_ori[:, :: self.downsampling_window, :])
                 x_mark_enc_mark_ori = x_mark_enc_mark_ori[:, :: self.downsampling_window, :]
-
         x_enc = x_enc_sampling_list
         if x_mark_enc_mark_ori is not None:
             x_mark_enc = x_mark_sampling_list
         else:
             x_mark_enc = x_mark_enc
-
         return x_enc, x_mark_enc
 
     def forecast(self, x_enc, x_mark_enc, x_dec=None, x_mark_dec=None):
         B, T, N = x_enc.size()
         x_enc, x_mark_enc = self.__multi_scale_process_inputs(x_enc, x_mark_enc)
-
         x_list = []
         x_mark_list = []
         if x_mark_enc is not None:
             for i, x, x_mark in zip(range(len(x_enc)), x_enc, x_mark_enc):
                 B, T, N = x.size()
-
                 x = self.revin_layers[i](x, x_mark, mode="norm") if self.use_norm else x
                 if self.channel_independence:
                     x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
@@ -199,16 +180,13 @@ class TimeMixerPP(nn.Module):
                 if self.channel_independence:
                     x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
                 x_list.append(x)
-
         if self.channel_mixing and self.channel_independence == 1:
             _, T, D = x_list[-1].size()
-
             coarse_scale_enc_out = x_list[-1].reshape(B, N, T * D)
             coarse_scale_enc_out, _ = self.channel_mixing_attention(
                 coarse_scale_enc_out, coarse_scale_enc_out, coarse_scale_enc_out, None
             )
             x_list[-1] = coarse_scale_enc_out.reshape(B * N, T, D) + x_list[-1]
-
         enc_out_list = []
         if x_mark_enc is not None:
             for x, x_mark in zip(x_list, x_mark_list):
@@ -218,17 +196,14 @@ class TimeMixerPP(nn.Module):
             for x in x_list:
                 enc_out = self.enc_embedding(x, None)  # [B,T,C]
                 enc_out_list.append(enc_out)
-
         for i in range(self.n_layers):
             enc_out_list = self.encoder_model[i](enc_out_list)
-
         dec_out_list = []
         for i, enc_out in zip(range(len(x_list)), enc_out_list):
             dec_out = self.predict_layers[i](enc_out.permute(0, 2, 1)).permute(0, 2, 1)  # align temporal dimension
             dec_out = self.projection_layer(dec_out)
             dec_out = dec_out.reshape(B, self.n_pred_features, -1).permute(0, 2, 1).contiguous()
             dec_out_list.append(dec_out)
-
         dec_out = self.revin_layers[0](dec_out, mode="denorm") if self.use_norm else dec_out
         return dec_out
 
@@ -236,14 +211,11 @@ class TimeMixerPP(nn.Module):
         x_enc, _ = self.__multi_scale_process_inputs(x_enc, None)
         x_list = x_enc
         enc_out_list = []
-
         for x in x_list:
             enc_out = self.enc_embedding(x, None)  # [B,T,C]
             enc_out_list.append(enc_out)
-
         for i in range(self.n_layers):
             enc_out_list = self.encoder_model[i](enc_out_list)
-
         enc_out = enc_out_list[0]
         output = self.act(enc_out)
         output = self.dropout(output)
@@ -255,16 +227,13 @@ class TimeMixerPP(nn.Module):
     def anomaly_detection(self, x_enc):
         B, T, N = x_enc.size()
         x_enc, _ = self.__multi_scale_process_inputs(x_enc, None)
-
         x_list = []
-
         for i, x in zip(range(len(x_enc)), x_enc):
             B, T, N = x.size()
             x = self.revin_layers[i](x, "norm") if self.use_norm else x
             if self.channel_independence:
                 x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
             x_list.append(x)
-
         if self.channel_mixing and self.channel_independence:
             _, T, D = x_list[-1].size()
             coarse_scale_enc_out = x_list[-1].reshape(B, N, T * D)
@@ -272,26 +241,20 @@ class TimeMixerPP(nn.Module):
                 coarse_scale_enc_out, coarse_scale_enc_out, coarse_scale_enc_out, None
             )
             x_list[-1] = coarse_scale_enc_out.reshape(B * N, T, D) + x_list[-1]
-
         enc_out_list = []
         for x in x_list:
             enc_out = self.enc_embedding(x, None)  # [B,T,C]
             enc_out_list.append(enc_out)
-
         for i in range(self.n_layers):
             enc_out_list = self.encoder_model[i](enc_out_list)
-
         dec_out = self.projection_layer(enc_out_list[0])
         dec_out = dec_out.reshape(B, self.c_out, -1).permute(0, 2, 1).contiguous()
-
         dec_out = self.revin_layers[0](dec_out, "denorm") if self.use_norm else dec_out
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc):
-
         B, T, N = x_enc.size()
         x_enc, x_mark_enc = self.__multi_scale_process_inputs(x_enc, x_mark_enc)
-
         x_list = []
         x_mark_list = []
         if x_mark_enc is not None:
@@ -308,7 +271,6 @@ class TimeMixerPP(nn.Module):
                 if self.channel_independence:
                     x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
                 x_list.append(x)
-
         if self.channel_mixing and self.channel_independence:
             _, T, D = x_list[-1].size()
             coarse_scale_enc_out = x_list[-1].reshape(B, N, T * D)
@@ -316,18 +278,14 @@ class TimeMixerPP(nn.Module):
                 coarse_scale_enc_out, coarse_scale_enc_out, coarse_scale_enc_out, None
             )
             x_list[-1] = coarse_scale_enc_out.reshape(B * N, T, D) + x_list[-1]
-
         enc_out_list = []
         for x in x_list:
             enc_out = self.enc_embedding(x, None)  # [B,T,C]
             enc_out_list.append(enc_out)
-
         for i in range(self.n_layers):
             enc_out_list = self.encoder_model[i](enc_out_list)
-
         dec_out = self.projection_layer(enc_out_list[0])
         dec_out = dec_out.reshape(B, self.n_pred_features, -1).permute(0, 2, 1).contiguous()
-
         return dec_out
 
 

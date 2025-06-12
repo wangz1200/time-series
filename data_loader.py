@@ -121,7 +121,7 @@ class TuShare(object):
             "close = VALUES(close), " 
             "volume = VALUES(volume), "
             "amount = VALUES(amount), "
-            "oi = VALUES(oi) "
+            "oi = VALUES(oi)"
         )
         stmt = sa.text(stmt)
         with engine.begin() as tx:
