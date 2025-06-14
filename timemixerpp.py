@@ -10,29 +10,29 @@ from pypots.nn.modules.transformer.embedding import DataEmbedding
 class TimeMixerPP(nn.Module):
 
     def __init__(
-        self,
-        task_name: str,
-        n_steps: int,
-        n_features: int,
-        n_pred_steps: int,
-        n_pred_features: int,
-        n_layers: int,
-        d_model: int,
-        d_ffn: int,
-        n_heads: int,
-        dropout: float,
-        top_k: int,
-        n_kernels: int,
-        channel_mixing: bool,
-        channel_independence: bool,
-        downsampling_layers: int,
-        downsampling_window: int,
-        downsampling_method: str,
-        use_future_temporal_feature: bool,
-        use_norm: bool = False,
-        embed="fixed",
-        freq="t",
-        n_classes=2,
+            self,
+            task_name: str,
+            n_steps: int,
+            n_features: int,
+            n_pred_steps: int,
+            n_pred_features: int,
+            n_layers: int,
+            d_model: int,
+            d_ffn: int,
+            n_heads: int,
+            dropout: float,
+            top_k: int,
+            n_kernels: int,
+            channel_mixing: bool,
+            channel_independence: bool,
+            downsampling_layers: int,
+            downsampling_window: int,
+            downsampling_method: str,
+            use_future_temporal_feature: bool,
+            use_norm: bool = False,
+            embed="fixed",
+            freq="h",
+            n_classes=None,
     ):
         super().__init__()
         self.task_name = task_name
@@ -70,10 +70,10 @@ class TimeMixerPP(nn.Module):
             ]
         )
         if self.channel_mixing:
-            assert n_steps >= downsampling_window**downsampling_layers
-            d_time_model = n_steps // (downsampling_window**downsampling_layers)
+            assert n_steps >= downsampling_window ** downsampling_layers
+            d_time_model = n_steps // (downsampling_window ** downsampling_layers)
             d_kv = d_time_model // n_heads
-            full_attn_operator = ScaledDotProductAttention(d_kv**0.5, dropout)
+            full_attn_operator = ScaledDotProductAttention(d_kv ** 0.5, dropout)
             self.channel_mixing_attention = MultiHeadAttention(
                 full_attn_operator,
                 d_time_model,
@@ -106,7 +106,7 @@ class TimeMixerPP(nn.Module):
             self.predict_layers = torch.nn.ModuleList(
                 [
                     torch.nn.Linear(
-                        n_steps // (downsampling_window**i),
+                        n_steps // (downsampling_window ** i),
                         n_pred_steps,
                     )
                     for i in range(downsampling_layers + 1)
@@ -125,6 +125,20 @@ class TimeMixerPP(nn.Module):
             self.act = F.gelu
             self.dropout = nn.Dropout(dropout)
             self.projection = nn.Linear(d_model * n_steps, n_classes)
+        elif task_name == "high_low_prediction":
+            self.predict_layers = torch.nn.ModuleList(
+                [
+                    torch.nn.Linear(
+                        n_steps // (downsampling_window**i),
+                        n_pred_steps,
+                    )
+                    for i in range(downsampling_layers + 1)
+                ]
+            )
+            if self.channel_independence:
+                self.projection_layer = nn.Linear(d_model, 1, bias=True)
+            else:
+                self.projection_layer = nn.Linear(d_model, 2, bias=True)
         else:
             raise NotImplementedError("Task not supported")
 
@@ -214,7 +228,7 @@ class TimeMixerPP(nn.Module):
         for x in x_list:
             enc_out = self.enc_embedding(x, None)  # [B,T,C]
             enc_out_list.append(enc_out)
-        for i in range(self.n_layers):
+        for i in range(self.n_layer):
             enc_out_list = self.encoder_model[i](enc_out_list)
         enc_out = enc_out_list[0]
         output = self.act(enc_out)
@@ -369,7 +383,7 @@ if __name__ == "__main__":
     args.down_sampling_window = 2
     args.channel_independence = 0
     model = TimeMixerPP(
-        task_name='classification',
+        task_name="high_low_prediction",
         n_steps=96,
         n_features=7,
         n_pred_steps=2,
@@ -393,7 +407,7 @@ if __name__ == "__main__":
         n_classes = 2,
     )
     sample = torch.randn(1, 96, 7)
-    model.classification(
+    model.predict_high_low(
         x_enc=sample,
         x_mark_enc=None,
     )
