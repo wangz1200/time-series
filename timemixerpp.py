@@ -194,7 +194,7 @@ class TimeMixerPP(nn.Module):
                 if self.channel_independence:
                     x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
                 x_list.append(x)
-        if self.channel_mixing and self.channel_independence == 1:
+        if self.channel_mixing and self.channel_independence:
             _, T, D = x_list[-1].size()
             coarse_scale_enc_out = x_list[-1].reshape(B, N, T * D)
             coarse_scale_enc_out, _ = self.channel_mixing_attention(
@@ -349,8 +349,8 @@ class TimeMixerPP(nn.Module):
         else:
             pred = pred.reshape(B, -1, 2).permute(0, 2, 1)  # [B, 2, N]
         # Apply denormalization if using RevIN
-        if self.use_norm:
-            pred = self.revin_layers[0](pred, mode="denorm")
+        # if self.use_norm:
+        #     pred = self.revin_layers[0](pred, mode="denorm")
         # Return high and low predictions
         # Assuming first output is high, second is low
         high_pred = pred[:, 0, :]  # [B, N]
@@ -381,13 +381,13 @@ if __name__ == "__main__":
     args.down_sampling_layers = 3
     args.down_sampling_method = 'conv'
     args.down_sampling_window = 2
-    args.channel_independence = 0
+    args.channel_independence = True
     model = TimeMixerPP(
-        task_name="high_low_prediction",
+        task_name="long_term_forecast",
         n_steps=96,
         n_features=7,
-        n_pred_steps=2,
-        n_pred_features=2,
+        n_pred_steps=4,
+        n_pred_features=7,
         n_layers=3,
         d_model=16,
         d_ffn=16,
@@ -407,7 +407,7 @@ if __name__ == "__main__":
         n_classes = 2,
     )
     sample = torch.randn(1, 96, 7)
-    model.predict_high_low(
+    model.forecast(
         x_enc=sample,
         x_mark_enc=None,
     )

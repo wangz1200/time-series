@@ -62,9 +62,9 @@ class TuShare(object):
             cls,
             host='localhost',
             port=3306,
-            name="future",
             user="root",
             password="root",
+            name="future",
     ):
         engine = sa.create_engine(sa.URL.create(
             drivername="mysql+pymysql",
@@ -128,6 +128,28 @@ class TuShare(object):
             for i in range(0, len(values), batch_size):
                 batch = values[i:i + batch_size]
                 tx.execute(stmt, batch)
+
+    def calculate_daily_high_low(
+            self,
+            period: str,
+            product: str,
+            host: str = "127.0.0.1",
+            port: int = 3306,
+            user: str = "root",
+            password: str = "root",
+            name: str = "future",
+    ):
+        engine = self.create_engine(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            name=name,
+        )
+        stmt = (
+            "select product, opwn, close, high, low from detail "
+            f"where product = '{product}' and period = '{period}' order by datetime"
+        )
 
 
 class FutureDataset(Dataset):
@@ -325,7 +347,7 @@ class FutureDataloader(DataLoader):
 if __name__ == "__main__":
     with Path("./config/config.yaml").open(
             mode="r",
-            encoding="uf8",
+            encoding="utf8",
     ) as f:
         config = yaml.safe_load(f)
     token = config["tushare"]['token']
@@ -343,7 +365,7 @@ if __name__ == "__main__":
     dataset.sync(
         product="rb2510",
         exchange="shf",
-        period="5min",
+        period="",
         start_date="2024-09-30 00:00:00",
         end_date="2025-12-31 00:00:00",
         engine=TuShare.create_engine()
